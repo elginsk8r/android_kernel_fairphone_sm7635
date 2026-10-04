@@ -963,6 +963,45 @@ static const struct aw_ff_effect *ff_find_effect(struct aw_haptic *aw_haptic, in
 	return NULL;
 }
 
+static int ff_magnitude_to_gain(int16_t magnitude)
+{
+	if (magnitude < 0)
+		magnitude = 0;
+
+	return magnitude * 0x80 / 0x7fff;
+}
+
+static const struct {
+	int16_t magnitude;
+	uint8_t gain;
+} aw_ff_strength_curve[] = {
+	{ 0x0000, 0x00 },
+	{ 0x3fff, 0x41 },
+	{ 0x5fff, 0x5a },
+	{ 0x7fff, 0x66 },
+};
+
+static int ff_strength_to_gain(int16_t magnitude)
+{
+	int i = 0;
+	int m0, m1, g0, g1;
+
+	if (magnitude <= 0)
+		return 0;
+	for (i = 1; i < ARRAY_SIZE(aw_ff_strength_curve); i++) {
+		if (magnitude <= aw_ff_strength_curve[i].magnitude)
+			break;
+	}
+	if (i == ARRAY_SIZE(aw_ff_strength_curve))
+		return aw_ff_strength_curve[i - 1].gain;
+	m0 = aw_ff_strength_curve[i - 1].magnitude;
+	m1 = aw_ff_strength_curve[i].magnitude;
+	g0 = aw_ff_strength_curve[i - 1].gain;
+	g1 = aw_ff_strength_curve[i].gain;
+
+	return g0 + (magnitude - m0) * (g1 - g0) / (m1 - m0);
+}
+
 static int input_upload_effect(struct input_dev *dev, struct ff_effect *effect,
 			       struct ff_effect *old)
 {
@@ -977,7 +1016,9 @@ static int input_upload_effect(struct input_dev *dev, struct ff_effect *effect,
 		aw_haptic->activate_mode = AW_RAM_LOOP_MODE;
 		aw_haptic->duration = effect->replay.length;
 		aw_haptic->index = aw_haptic->ram.ram_num;
-		aw_info("waveform id = %d", aw_haptic->index);
+		aw_haptic->gain = ff_magnitude_to_gain(effect->u.constant.level);
+		aw_info("constant: wave %d, %d ms, gain 0x%02x", aw_haptic->index,
+			aw_haptic->duration, aw_haptic->gain);
 		break;
 	case FF_PERIODIC:
 		if (effect->u.periodic.waveform != FF_CUSTOM ||
@@ -999,13 +1040,15 @@ static int input_upload_effect(struct input_dev *dev, struct ff_effect *effect,
 		aw_haptic->activate_mode = AW_RAM_LOOP_MODE;
 		aw_haptic->index = eff->wave;
 		aw_haptic->duration = eff->play_ms;
+		aw_haptic->gain = ff_strength_to_gain(effect->u.periodic.magnitude);
 		data[1] = eff->play_ms / 1000;
 		data[2] = eff->play_ms % 1000;
 		if (copy_to_user(effect->u.periodic.custom_data, data, sizeof(data))) {
 			ret = -EFAULT;
 			break;
 		}
-		aw_info("effect %d: wave %d, %d ms", data[0], eff->wave, eff->play_ms);
+		aw_info("effect %d: wave %d, %d ms, gain 0x%02x", data[0], eff->wave,
+			eff->play_ms, aw_haptic->gain);
 		break;
 	default:
 		aw_err("Unsupported effect type: %d", effect->type);
