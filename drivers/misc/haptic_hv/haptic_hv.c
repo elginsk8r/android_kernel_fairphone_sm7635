@@ -920,12 +920,55 @@ static void input_vib_work_routine(struct work_struct *work)
 	mutex_unlock(&aw_haptic->lock);
 }
 
+/*
+ * see InputFFDevice::play
+ * custom_data[0]: android.hardware.vibrator.Effect
+ * custom_data[1],[2]: play length returned to HAL (s, ms)
+ */
+enum aw_ff_effect_id {
+	AW_FF_EFFECT_CLICK = 0,
+	AW_FF_EFFECT_DOUBLE_CLICK = 1,
+	AW_FF_EFFECT_TICK = 2,
+	AW_FF_EFFECT_THUD = 3,
+	AW_FF_EFFECT_POP = 4,
+	AW_FF_EFFECT_HEAVY_CLICK = 5,
+};
+
+/* Effects loop a RAM wave for a fixed time, matching stock HAL */
+struct aw_ff_effect {
+	int16_t id;
+	uint8_t wave;
+	uint16_t play_ms;
+};
+
+static const struct aw_ff_effect aw_ff_effects[] = {
+	{ AW_FF_EFFECT_CLICK,		1, 48 },
+	{ AW_FF_EFFECT_DOUBLE_CLICK,	2, 36 },
+	{ AW_FF_EFFECT_TICK,		1, 48 },
+	{ AW_FF_EFFECT_THUD,		1, 48 },
+	{ AW_FF_EFFECT_POP,		1, 48 },
+	{ AW_FF_EFFECT_HEAVY_CLICK,	3, 48 },
+};
+
+static const struct aw_ff_effect *ff_find_effect(struct aw_haptic *aw_haptic, int16_t id)
+{
+	int i = 0;
+
+	for (i = 0; i < ARRAY_SIZE(aw_ff_effects); i++) {
+		if (aw_ff_effects[i].id == id &&
+		    aw_ff_effects[i].wave <= aw_haptic->ram.ram_num)
+			return &aw_ff_effects[i];
+	}
+
+	return NULL;
+}
+
 static int input_upload_effect(struct input_dev *dev, struct ff_effect *effect,
 			       struct ff_effect *old)
 {
 	struct aw_haptic *aw_haptic = input_get_drvdata(dev);
-	short wav_id = 0;
-	int wav_id_max = 0;
+	int16_t data[AW_FF_CUSTOM_DATA_LEN] = { 0 };
+	const struct aw_ff_effect *eff = NULL;
 	int ret = 0;
 
 	mutex_lock(&aw_haptic->lock);
@@ -937,36 +980,41 @@ static int input_upload_effect(struct input_dev *dev, struct ff_effect *effect,
 		aw_info("waveform id = %d", aw_haptic->index);
 		break;
 	case FF_PERIODIC:
-		ret = copy_from_user(&wav_id, effect->u.periodic.custom_data, sizeof(short));
-		if (ret) {
-			aw_err("copy from user error %d!!", ret);
-			mutex_unlock(&aw_haptic->lock);
-			return -ERANGE;
+		if (effect->u.periodic.waveform != FF_CUSTOM ||
+		    effect->u.periodic.custom_len < AW_FF_CUSTOM_DATA_LEN) {
+			aw_err("unsupported periodic effect");
+			ret = -EINVAL;
+			break;
 		}
-		aw_info("waveform id = %d", wav_id);
-		wav_id_max = aw_haptic->rtp_num + aw_haptic->ram.ram_num - 1;
-		if (wav_id > 0 && wav_id < aw_haptic->ram.ram_num) {
-			aw_haptic->activate_mode = AW_RAM_MODE;
-			aw_haptic->index = wav_id;
-		} else if (wav_id > aw_haptic->ram.ram_num && wav_id <= wav_id_max) {
-			aw_haptic->activate_mode = AW_RTP_MODE;
-			aw_haptic->rtp_file_num = wav_id - aw_haptic->ram.ram_num;
-		} else if (wav_id == 0) {
-			aw_haptic->activate_mode = AW_STANDBY_MODE;
-		} else {
-			aw_haptic->activate_mode = AW_STANDBY_MODE;
-			aw_err("waveform id is error");
-			mutex_unlock(&aw_haptic->lock);
-			return -ERANGE;
+		if (copy_from_user(data, effect->u.periodic.custom_data, sizeof(data))) {
+			ret = -EFAULT;
+			break;
 		}
+		eff = ff_find_effect(aw_haptic, data[0]);
+		if (!eff) {
+			aw_err("unsupported effect id %d", data[0]);
+			ret = -EINVAL;
+			break;
+		}
+		aw_haptic->activate_mode = AW_RAM_LOOP_MODE;
+		aw_haptic->index = eff->wave;
+		aw_haptic->duration = eff->play_ms;
+		data[1] = eff->play_ms / 1000;
+		data[2] = eff->play_ms % 1000;
+		if (copy_to_user(effect->u.periodic.custom_data, data, sizeof(data))) {
+			ret = -EFAULT;
+			break;
+		}
+		aw_info("effect %d: wave %d, %d ms", data[0], eff->wave, eff->play_ms);
 		break;
 	default:
 		aw_err("Unsupported effect type: %d", effect->type);
+		ret = -EINVAL;
 		break;
 	}
 	mutex_unlock(&aw_haptic->lock);
 
-	return 0;
+	return ret;
 }
 
 static int input_playback(struct input_dev *dev, int effect_id, int val)

@@ -80,6 +80,7 @@
 #define AW_RAMDATA_RD_BUFFER_SIZE		(1024)
 #define AW_RAMDATA_WR_BUFFER_SIZE		(2048)
 #define AW_EFFECT_NUMBER			(3)
+#define AW_FF_CUSTOM_DATA_LEN			(3)
 #define AW_GLBRD_STATE_MASK			(15<<0)
 #define AW_STATE_STANDBY			(0x00)
 #define AW_STATE_RTP				(0x08)
