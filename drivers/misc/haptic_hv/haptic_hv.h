@@ -82,6 +82,7 @@
 #define AW_EFFECT_NUMBER			(3)
 #define AW_RAM_WAVE_MAX				(16)
 #define AW_RAM_SAMPLE_RATE			(24000)
+#define AW_FF_CUSTOM_DATA_LEN			(3)
 #define AW_SEQ_WAIT_FLAG			(0x80)
 #define AW_SEQ_WAIT_UNIT_SAMPLES		(64)
 #define AW_SEQ_WAIT_MS(ms)			(AW_SEQ_WAIT_FLAG | \
@@ -509,6 +510,20 @@ enum aw_trim_config {
 	AW_TRIM_REGISTER = 0x20,
 };
 
+enum aw_ff_effect_id {
+	AW_FF_EFFECT_CLICK = 0,
+	AW_FF_EFFECT_DOUBLE_CLICK = 1,
+	AW_FF_EFFECT_TICK = 2,
+	AW_FF_EFFECT_THUD = 3,
+	AW_FF_EFFECT_POP = 4,
+	AW_FF_EFFECT_HEAVY_CLICK = 5,
+};
+
+struct aw_ff_effect {
+	int16_t id;
+	uint8_t seq[AW_SEQUENCER_SIZE];
+};
+
 /*********************************************************
  *
  * Enum aw8671x
@@ -704,6 +719,8 @@ struct aw_haptic {
 	uint8_t ram_vbat_comp;
 	uint8_t seq[AW_SEQUENCER_SIZE];
 	uint8_t loop[AW_SEQUENCER_SIZE];
+	uint8_t ff_seq[AW_SEQUENCER_SIZE];
+	uint8_t ff_seq_len;
 	uint8_t name[15];
 	uint8_t trim_lra_boundary;
 
