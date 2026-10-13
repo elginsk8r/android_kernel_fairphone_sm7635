@@ -534,6 +534,7 @@ struct aw_ff_effect {
 	uint16_t id;
 	uint8_t seq[AW_SEQUENCER_SIZE];
 	uint8_t loop[AW_SEQUENCER_SIZE];
+	uint8_t scale;
 };
 
 /*********************************************************
