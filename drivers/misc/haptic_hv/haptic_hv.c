@@ -961,6 +961,15 @@ static const struct aw_ff_effect aw_ff_effects[] = {
 	{ AW_FF_EFFECT_POP,		{ 9 }, { 0 }, 80 },
 	{ AW_FF_EFFECT_HEAVY_CLICK,	{ 13 }, { 0 }, 70 },
 	{ AW_FF_PRIMITIVE_NOOP,		{ 0 }, { 0 }, 100 },
+	{ AW_FF_PRIMITIVE_CLICK,	{ 9 }, { 0 }, 80 },
+	{ AW_FF_PRIMITIVE_THUD,		{ 9, AW_SEQ_WAIT_MS(10), 2 }, { 0, 0, 4 }, 60 },
+	{ AW_FF_PRIMITIVE_SPIN,		{ 12 }, { 0 }, 60 },
+	{ AW_FF_PRIMITIVE_QUICK_RISE,	{ 1, 2, 3, 4, 5, 6, 7, 8 }, { 7, 6, 5, 3, 2 }, 30 },
+	{ AW_FF_PRIMITIVE_SLOW_RISE,	{ 1, 1, 1, 2, 3, 5, 7, 8 },
+					{ 14, 14, 14, 14, 12, 7, 3 }, 30 },
+	{ AW_FF_PRIMITIVE_QUICK_FALL,	{ 7, 1 }, { 10, 10 }, 30 },
+	{ AW_FF_PRIMITIVE_LIGHT_TICK,	{ 10 }, { 0 }, 100 },
+	{ AW_FF_PRIMITIVE_LOW_TICK,	{ 11 }, { 0 }, 100 },
 };
 
 static int ff_magnitude_to_gain(int16_t magnitude)
