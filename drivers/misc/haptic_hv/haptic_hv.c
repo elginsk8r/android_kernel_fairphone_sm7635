@@ -921,10 +921,12 @@ static void input_vib_work_routine(struct work_struct *work)
 }
 
 /*
- * see InputFFDevice::play
- * custom_data[0]: android.hardware.vibrator.Effect
+ * see InputFFDevice::play and playPrimitive
+ * custom_data[0]: android.hardware.vibrator.Effect or AW_FF_PRIMITIVE | CompositePrimitive
  * custom_data[1],[2]: play length returned to HAL (s, ms)
  */
+#define AW_FF_PRIMITIVE		0x8000
+
 enum aw_ff_effect_id {
 	AW_FF_EFFECT_CLICK = 0,
 	AW_FF_EFFECT_DOUBLE_CLICK = 1,
@@ -932,11 +934,20 @@ enum aw_ff_effect_id {
 	AW_FF_EFFECT_THUD = 3,
 	AW_FF_EFFECT_POP = 4,
 	AW_FF_EFFECT_HEAVY_CLICK = 5,
+	AW_FF_PRIMITIVE_NOOP = AW_FF_PRIMITIVE | 0,
+	AW_FF_PRIMITIVE_CLICK = AW_FF_PRIMITIVE | 1,
+	AW_FF_PRIMITIVE_THUD = AW_FF_PRIMITIVE | 2,
+	AW_FF_PRIMITIVE_SPIN = AW_FF_PRIMITIVE | 3,
+	AW_FF_PRIMITIVE_QUICK_RISE = AW_FF_PRIMITIVE | 4,
+	AW_FF_PRIMITIVE_SLOW_RISE = AW_FF_PRIMITIVE | 5,
+	AW_FF_PRIMITIVE_QUICK_FALL = AW_FF_PRIMITIVE | 6,
+	AW_FF_PRIMITIVE_LIGHT_TICK = AW_FF_PRIMITIVE | 7,
+	AW_FF_PRIMITIVE_LOW_TICK = AW_FF_PRIMITIVE | 8,
 };
 
 /* Effects loop a RAM wave for a fixed time, matching stock HAL */
 struct aw_ff_effect {
-	int16_t id;
+	uint16_t id;
 	uint8_t wave;
 	uint16_t play_ms;
 };
@@ -948,9 +959,13 @@ static const struct aw_ff_effect aw_ff_effects[] = {
 	{ AW_FF_EFFECT_THUD,		1, 48 },
 	{ AW_FF_EFFECT_POP,		1, 48 },
 	{ AW_FF_EFFECT_HEAVY_CLICK,	3, 48 },
+	{ AW_FF_PRIMITIVE_NOOP,		0, 0 },
+	{ AW_FF_PRIMITIVE_CLICK,	1, 48 },
+	{ AW_FF_PRIMITIVE_THUD,		3, 48 },
+	{ AW_FF_PRIMITIVE_LIGHT_TICK,	3, 14 },
 };
 
-static const struct aw_ff_effect *ff_find_effect(struct aw_haptic *aw_haptic, int16_t id)
+static const struct aw_ff_effect *ff_find_effect(struct aw_haptic *aw_haptic, uint16_t id)
 {
 	int i = 0;
 
@@ -1002,6 +1017,45 @@ static int ff_strength_to_gain(int16_t magnitude)
 	return g0 + (magnitude - m0) * (g1 - g0) / (m1 - m0);
 }
 
+static ssize_t primitive_duration_show(struct class *c, struct class_attribute *attr,
+				       char *buf)
+{
+	struct aw_haptic *aw_haptic = container_of(c, struct aw_haptic, ff_class);
+	const struct aw_ff_effect *eff = NULL;
+	int play_us = 0;
+
+	mutex_lock(&aw_haptic->lock);
+	eff = ff_find_effect(aw_haptic, AW_FF_PRIMITIVE | aw_haptic->ff_duration_id);
+	if (eff && aw_haptic->ram_init)
+		play_us = eff->play_ms * 1000;
+	mutex_unlock(&aw_haptic->lock);
+
+	return sysfs_emit(buf, "%d\n", play_us);
+}
+
+static ssize_t primitive_duration_store(struct class *c,
+					struct class_attribute *attr,
+					const char *buf, size_t count)
+{
+	struct aw_haptic *aw_haptic = container_of(c, struct aw_haptic, ff_class);
+	uint16_t id = 0;
+
+	if (kstrtou16(buf, 0, &id) || id & AW_FF_PRIMITIVE)
+		return -EINVAL;
+	mutex_lock(&aw_haptic->lock);
+	aw_haptic->ff_duration_id = id;
+	mutex_unlock(&aw_haptic->lock);
+
+	return count;
+}
+static CLASS_ATTR_RW(primitive_duration);
+
+static struct attribute *aw_ff_class_attrs[] = {
+	&class_attr_primitive_duration.attr,
+	NULL,
+};
+ATTRIBUTE_GROUPS(aw_ff_class);
+
 static int input_upload_effect(struct input_dev *dev, struct ff_effect *effect,
 			       struct ff_effect *old)
 {
@@ -1033,21 +1087,24 @@ static int input_upload_effect(struct input_dev *dev, struct ff_effect *effect,
 		}
 		eff = ff_find_effect(aw_haptic, data[0]);
 		if (!eff) {
-			aw_err("unsupported effect id %d", data[0]);
+			aw_err("unsupported effect id 0x%04x", (uint16_t)data[0]);
 			ret = -EINVAL;
 			break;
 		}
-		aw_haptic->activate_mode = AW_RAM_LOOP_MODE;
+		aw_haptic->activate_mode = eff->wave ? AW_RAM_LOOP_MODE : AW_STANDBY_MODE;
 		aw_haptic->index = eff->wave;
 		aw_haptic->duration = eff->play_ms;
-		aw_haptic->gain = ff_strength_to_gain(effect->u.periodic.magnitude);
+		if (eff->id & AW_FF_PRIMITIVE)
+			aw_haptic->gain = ff_magnitude_to_gain(effect->u.periodic.magnitude);
+		else
+			aw_haptic->gain = ff_strength_to_gain(effect->u.periodic.magnitude);
 		data[1] = eff->play_ms / 1000;
 		data[2] = eff->play_ms % 1000;
 		if (copy_to_user(effect->u.periodic.custom_data, data, sizeof(data))) {
 			ret = -EFAULT;
 			break;
 		}
-		aw_info("effect %d: wave %d, %d ms, gain 0x%02x", data[0], eff->wave,
+		aw_info("effect 0x%04x: wave %d, %d ms, gain 0x%02x", eff->id, eff->wave,
 			eff->play_ms, aw_haptic->gain);
 		break;
 	default:
@@ -1075,6 +1132,8 @@ static int input_playback(struct input_dev *dev, int effect_id, int val)
 		return 0;
 	}
 	switch (aw_haptic->activate_mode) {
+	case AW_STANDBY_MODE:
+		break;
 	case AW_RAM_MODE:
 		queue_work(aw_haptic->work_queue, &aw_haptic->input_vib_work);
 		break;
@@ -1145,8 +1204,14 @@ static int input_framework_init(struct aw_haptic *aw_haptic)
 		input_ff_destroy(aw_haptic->input_dev);
 		return ret;
 	}
+	aw_haptic->ff_class.name = "qcom-haptics";
+	aw_haptic->ff_class.class_groups = aw_ff_class_groups;
+	if (class_register(&aw_haptic->ff_class)) {
+		aw_err("register qcom-haptics class failed");
+		aw_haptic->ff_class.name = NULL;
+	}
 
-	return ret;
+	return 0;
 }
 #endif
 
@@ -3966,6 +4031,8 @@ static int aw_remove(struct i2c_client *i2c)
 	cancel_work_sync(&aw_haptic->input_vib_work);
 	input_unregister_device(aw_haptic->input_dev);
 	input_ff_destroy(aw_haptic->input_dev);
+	if (aw_haptic->ff_class.name)
+		class_unregister(&aw_haptic->ff_class);
 #endif
 	cancel_delayed_work_sync(&aw_haptic->ram_work);
 	cancel_work_sync(&aw_haptic->haptic_audio.work);
