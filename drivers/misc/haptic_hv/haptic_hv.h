@@ -83,6 +83,7 @@
 #define AW_RAM_WAVE_MAX				(16)
 #define AW_RAM_SAMPLE_RATE			(24000)
 #define AW_FF_CUSTOM_DATA_LEN			(3)
+#define AW_FF_PRIMITIVE					0x8000
 #define AW_SEQ_WAIT_FLAG			(0x80)
 #define AW_SEQ_WAIT_UNIT_SAMPLES		(64)
 #define AW_SEQ_WAIT_MS(ms)			(AW_SEQ_WAIT_FLAG | \
@@ -518,10 +519,19 @@ enum aw_ff_effect_id {
 	AW_FF_EFFECT_THUD = 3,
 	AW_FF_EFFECT_POP = 4,
 	AW_FF_EFFECT_HEAVY_CLICK = 5,
+	AW_FF_PRIMITIVE_NOOP = AW_FF_PRIMITIVE | 0,
+	AW_FF_PRIMITIVE_CLICK = AW_FF_PRIMITIVE | 1,
+	AW_FF_PRIMITIVE_THUD = AW_FF_PRIMITIVE | 2,
+	AW_FF_PRIMITIVE_SPIN = AW_FF_PRIMITIVE | 3,
+	AW_FF_PRIMITIVE_QUICK_RISE = AW_FF_PRIMITIVE | 4,
+	AW_FF_PRIMITIVE_SLOW_RISE = AW_FF_PRIMITIVE | 5,
+	AW_FF_PRIMITIVE_QUICK_FALL = AW_FF_PRIMITIVE | 6,
+	AW_FF_PRIMITIVE_LIGHT_TICK = AW_FF_PRIMITIVE | 7,
+	AW_FF_PRIMITIVE_LOW_TICK = AW_FF_PRIMITIVE | 8,
 };
 
 struct aw_ff_effect {
-	int16_t id;
+	uint16_t id;
 	uint8_t seq[AW_SEQUENCER_SIZE];
 	uint8_t loop[AW_SEQUENCER_SIZE];
 };
@@ -775,6 +785,8 @@ struct aw_haptic {
 	struct device *dev;
 	struct i2c_client *i2c;
 	struct input_dev *input_dev;
+	struct class ff_class;
+	uint16_t ff_duration_id;
 	struct semaphore sema;
 	struct work_struct gain_work;
 	struct work_struct input_vib_work;
