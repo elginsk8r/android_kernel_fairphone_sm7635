@@ -1056,6 +1056,29 @@ static struct attribute *aw_ff_class_attrs[] = {
 };
 ATTRIBUTE_GROUPS(aw_ff_class);
 
+/* Short constant vibrations loop shorter waves, matching stock HAL */
+static const struct {
+	uint16_t max_ms;
+	uint8_t wave;
+} aw_ff_constant_waves[] = {
+	{ 10, 1 },
+	{ 30, 2 },
+	{ 50, 3 },
+};
+
+static uint8_t ff_constant_wave(struct aw_haptic *aw_haptic, int duration)
+{
+	int i = 0;
+
+	for (i = 0; i < ARRAY_SIZE(aw_ff_constant_waves); i++) {
+		if (duration <= aw_ff_constant_waves[i].max_ms &&
+		    aw_ff_constant_waves[i].wave <= aw_haptic->ram.ram_num)
+			return aw_ff_constant_waves[i].wave;
+	}
+
+	return aw_haptic->ram.ram_num;
+}
+
 static int input_upload_effect(struct input_dev *dev, struct ff_effect *effect,
 			       struct ff_effect *old)
 {
@@ -1069,7 +1092,7 @@ static int input_upload_effect(struct input_dev *dev, struct ff_effect *effect,
 	case FF_CONSTANT:
 		aw_haptic->activate_mode = AW_RAM_LOOP_MODE;
 		aw_haptic->duration = effect->replay.length;
-		aw_haptic->index = aw_haptic->ram.ram_num;
+		aw_haptic->index = ff_constant_wave(aw_haptic, aw_haptic->duration);
 		aw_haptic->gain = ff_magnitude_to_gain(effect->u.constant.level);
 		aw_info("constant: wave %d, %d ms, gain 0x%02x", aw_haptic->index,
 			aw_haptic->duration, aw_haptic->gain);
